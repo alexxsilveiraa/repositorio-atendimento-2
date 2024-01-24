@@ -1,0 +1,116 @@
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+id_do_servidor = 953097486443094076
+id_cargo_atendente = 1088948149827158027
+token_bot = ''
+
+class Dropdown(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(value="atendimento",label="Atendimento", emoji="📨"),
+            discord.SelectOption(value="denunciar",label="Denunciar", emoji="🚨"),
+        ]
+        super().__init__(
+            placeholder="Selecione uma opção...",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="persistent_view:dropdown_help"
+        )
+    async def callback(self, interaction: discord.Interaction):
+        if self.values[0] == "atendimento":
+            await interaction.response.send_message("Clique abaixo para criar um ticket",ephemeral=True,view=CreateTicket())
+        elif self.values[0] == "denunciar":
+            await interaction.response.send_message("Clique abaixo para Denunciar",ephemeral=True,view=CreateTicket())
+
+class DropdownView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+        self.add_item(Dropdown())
+
+class CreateTicket(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=300)
+        self.value=None
+
+    @discord.ui.button(label="Abrir Ticket",style=discord.ButtonStyle.blurple,emoji="➕")
+    async def confirm(self,interaction: discord.Interaction, button: discord.ui.Button):
+        self.value = True
+        self.stop()
+
+        ticket = None
+        for thread in interaction.channel.threads:
+            if f"{interaction.user.id}" in thread.name:
+                if thread.archived:
+                    ticket = thread
+                else:
+                    await interaction.response.send_message(ephemeral=True,content=f"Você já tem um atendimento em andamento!")
+                    return
+
+        async for thread in interaction.channel.archived_threads(private=True):
+            if f"{interaction.user.id}" in thread.name:
+                if thread.archived:
+                    ticket = thread
+                else:
+                    await interaction.edit_original_response(content=f"Você já tem um atendimento em andamento!",view=None)
+                    return
+        
+        if ticket != None:
+            await ticket.edit(archived=False,locked=False)
+            await ticket.edit(name=f"{interaction.user.name} ({interaction.user.id})",auto_archive_duration=10080,invitable=False)
+        else:
+            ticket = await interaction.channel.create_thread(name=f"{interaction.user.name} ({interaction.user.id})",auto_archive_duration=10080,type=discord.ChannelType.private_thread) #,type=discord.ChannelType.public_thread)
+            await ticket.edit(invitable=False)
+
+        await interaction.response.send_message(ephemeral=True,content=f"Criei um ticket para você! {ticket.mention}")
+        await ticket.send(f"📩  **|** {interaction.user.mention} **Ticket registrado com sucesso!** Por favor, escreva  os detalhes sobre o seu caso. Aguarde a resposta de um dos nossos atendentes.  Quando sua questão for resolvida, sinta-se à vontade para utilizar o comando `/finalizar` para encerrar o atendimento!\n<@&1181974276748873780>")
+
+
+
+class client(discord.Client):
+    def __init__(self):
+        super().__init__(intents=discord.Intents.default())
+        self.synced = False
+
+    async def setup_hook(self) -> None:
+        self.add_view(DropdownView())
+
+    async def on_ready(self):
+        await self.wait_until_ready()
+        if not self.synced: #Checar se os comandos slash foram sincronizados 
+            await tree.sync(guild = discord.Object(953097486443094076))
+            self.synced = True
+        print(f"Entramos como {self.user}.")
+
+aclient = client()
+
+tree = app_commands.CommandTree(aclient)
+
+
+@tree.command(guild = discord.Object(id=id_do_servidor), name = 'setup', description='Setup')
+@commands.has_permissions(manage_guild=True)
+async def setup(interaction: discord.Interaction):
+    await interaction.response.send_message("Mensagem do painel",view=DropdownView())
+
+    embed = discord.Embed(
+        colour=discord.Color.purple(),
+        title="Central de Atendimento da Yoshimia",
+        description="Nesta seção, estamos à disposição para auxiliá-lo! Contate nossa equipe de suporte da Yoshimia para obter a assistência que você precisa."
+        )
+    
+    embed.set_image(url="")
+    await interaction.channel.send(embed=embed,view=DropdownView())
+
+@tree.command(guild = discord.Object(id=id_do_servidor), name="fecharticket",description='Feche um atendimento atual.')
+async def _fecharticket(interaction: discord.Interaction):
+    mod = interaction.guild.get_role(1088948149827158027)
+    if str(interaction.user.id) in interaction.channel.name or mod in interaction.user.roles:
+        await interaction.response.send_message(f"O ticket foi arquivado por {interaction.user.mention}, obrigado por entrar em contato!")
+        await interaction.channel.edit(archived=True,locked=True)
+    else:
+        await interaction.response.send_message("Isso não pode ser feito aqui...")
+
+aclient.run("")
